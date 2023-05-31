@@ -1,6 +1,7 @@
 // Heavily inspired from work of @davidgilbertson on Github and `leaflet-geoman` project.
 
-import { geojsonTypes } from "@mapbox/mapbox-gl-draw/src/constants";
+import * as MapboxDraw from '@mapbox/mapbox-gl-draw';
+
 // import {
 //   bboxPolygon,
 //   booleanDisjoint,
@@ -20,6 +21,8 @@ import nearestPointOnLine from "@turf/nearest-point-on-line";
 import midpoint from "@turf/midpoint";
 import { lineString as turfLineString } from "@turf/helpers";
 
+const Constants = MapboxDraw.constants;
+const geojsonTypes = Constants.geojsonTypes;
 
 export const IDS = {
   VERTICAL_GUIDE: "VERTICAL_GUIDE",

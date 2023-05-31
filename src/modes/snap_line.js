@@ -1,10 +1,5 @@
-import {
-  geojsonTypes,
-  modes,
-  cursors,
-} from "@mapbox/mapbox-gl-draw/src/constants";
-import doubleClickZoom from "@mapbox/mapbox-gl-draw/src/lib/double_click_zoom";
-import DrawLine from "@mapbox/mapbox-gl-draw/src/modes/draw_line_string";
+import * as MapboxDraw from '@mapbox/mapbox-gl-draw';
+
 import {
   addPointTovertices,
   createSnapList,
@@ -13,6 +8,13 @@ import {
   shouldHideGuide,
   snap,
 } from "./../utils";
+
+const DrawLine = { ...MapboxDraw.modes.draw_line_string };
+const Constants = MapboxDraw.constants;
+const doubleClickZoom = MapboxDraw.lib.doubleClickZoom;
+const geojsonTypes = Constants.geojsonTypes;
+const cursors = Constants.cursors;
+const modes = Constants.modes;
 
 const SnapLineMode = { ...DrawLine };
 
