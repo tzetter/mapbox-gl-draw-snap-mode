@@ -31,6 +31,7 @@ import {
   SnapPointMode,
   SnapLineMode,
   SnapModeDrawStyles,
+  SnapDirectSelect,
 } from "mapbox-gl-draw-snap-mode";
 // or global variable mapboxGlDrawSnapMode when using script tag
 
@@ -40,6 +41,7 @@ const draw = new MapboxDraw({
     draw_point: SnapPointMode,
     draw_polygon: SnapPolygonMode,
     draw_line_string: SnapLineMode,
+    direct_select: SnapDirectSelect,
   },
   // Styling guides
   styles: SnapModeDrawStyles,
@@ -50,9 +52,15 @@ const draw = new MapboxDraw({
     snapPx: 15, // defaults to 15
     snapToMidPoints: true, // defaults to false
     snapVertexPriorityDistance: 0.0025, // defaults to 1.25
+    snapGetFeatures: (map, draw) => [
+      ...map.queryRenderedFeatures({ layers: ["not-editable-layer-name"] }),
+      ...draw.getAll().features,
+    ], // defaults to all features from the draw layer (draw.getAll().features)
   },
   guides: false,
 });
+
+map.addControl(draw, "top-right");
 
 draw.changeMode("draw_polygon");
 ```
@@ -61,7 +69,7 @@ draw.changeMode("draw_polygon");
 
 #### `snapPx`
 
-The min distnace (in pixels) where snapping to the line/segments would take effect.
+The min distance (in pixels) where snapping to the line/segments would take effect.
 
 #### `snapToMidPoints`
 
@@ -71,9 +79,13 @@ Controls whether to snap to line/segments midpoints (an imaginary point in the m
 
 The min distance (in Kilometers) from each vertex, where snapping to that vertex would take priority over snapping to line/segments.
 
+#### `overlap`
+
+Defaults to `true`. When creating polygons, if `false`, will use `turf.difference` on all overlapping polygons to create a polygon that does not overlap existing ones.
+
 ### Changing settings
 
-Changing settings would take effect while snapping imidiately, so you can control snapping behaivior using `draw.options.snap`, like so:
+Changing settings would take effect while snapping immediately, so you can control snapping behavior using `draw.options.snap`, like so:
 
 ```js
 // turn snapping off
@@ -100,9 +112,6 @@ to preview, change `docs/index.html` as so:
 
 ```diff
 - <script src="https://unpkg.com/mapbox-gl-draw-snap-mode"></script>
-+ <!-- <script src="https://unpkg.com/mapbox-gl-draw-snap-mode"></script> -->
-
-- <!-- <script src="index.js"></script> -->
 + <script src="index.js"></script>
 ```
 

@@ -1,16 +1,7 @@
 // Heavily inspired from work of @davidgilbertson on Github and `leaflet-geoman` project.
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
 
-import * as MapboxDraw from '@mapbox/mapbox-gl-draw';
-
-// import {
-//   bboxPolygon,
-//   booleanDisjoint,
-//   getCoords,
-//   distance,
-//   polygonToLine,
-//   nearestPointOnLine,
-//   midpoint,
-// } from "@turf/turf";
+const { geojsonTypes } = MapboxDraw.constants;
 
 import bboxPolygon from "@turf/bbox-polygon";
 import booleanDisjoint from "@turf/boolean-disjoint";
@@ -18,25 +9,27 @@ import { getCoords } from "@turf/invariant";
 import distance from "@turf/distance";
 import polygonToLine from "@turf/polygon-to-line";
 import nearestPointOnLine from "@turf/nearest-point-on-line";
+import nearestPointInPointSet from "@turf/nearest-point";
 import midpoint from "@turf/midpoint";
-import { lineString as turfLineString } from "@turf/helpers";
-
-const Constants = MapboxDraw.constants;
-const geojsonTypes = Constants.geojsonTypes;
+import {
+  featureCollection,
+  lineString as turfLineString,
+  point as turfPoint,
+} from "@turf/helpers";
 
 export const IDS = {
   VERTICAL_GUIDE: "VERTICAL_GUIDE",
   HORIZONTAL_GUIDE: "HORIZONTAL_GUIDE",
 };
 
-export const addPointTovertices = (
+export const addPointToVertices = (
   map,
   vertices,
   coordinates,
   forceInclusion
 ) => {
   const { width: w, height: h } = map.getCanvas();
-  // Just add verteices of features currently visible in viewport
+  // Just add vertices of features currently visible in viewport
   const { x, y } = map.project(coordinates);
   const pointIsOnTheScreen = x > 0 && x < w && y > 0 && y < h;
 
@@ -47,9 +40,18 @@ export const addPointTovertices = (
   }
 };
 
-export const createSnapList = (map, draw, currentFeature) => {
-  // Get all drawn features
-  const features = draw.getAll().features;
+export const createSnapList = (map, draw, currentFeature, getFeatures) => {
+  // Get all features
+  let features = [];
+
+  if (typeof getFeatures === "function") {
+    features = getFeatures(map, draw);
+  }
+
+  if (!Array.isArray(features) || features.length === 0) {
+    features = draw.getAll().features;
+  }
+
   const snapList = [];
 
   // Get current bbox as polygon
@@ -67,31 +69,31 @@ export const createSnapList = (map, draw, currentFeature) => {
 
   const vertices = [];
 
-  // Keeps vertices for drwing guides
-  const addVerticesTovertices = (coordinates, isCurrentFeature = false) => {
+  // Keeps vertices for drawing guides
+  const addVerticesToVertices = (coordinates, isCurrentFeature = false) => {
     if (!Array.isArray(coordinates)) throw Error("Your array is not an array");
 
     if (Array.isArray(coordinates[0])) {
       // coordinates is an array of arrays, we must go deeper
       coordinates.forEach((coord) => {
-        addVerticesTovertices(coord);
+        addVerticesToVertices(coord);
       });
     } else {
       // If not an array of arrays, only consider arrays with two items
       if (coordinates.length === 2) {
-        addPointTovertices(map, vertices, coordinates, isCurrentFeature);
+        addPointToVertices(map, vertices, coordinates, isCurrentFeature);
       }
     }
   };
 
   features.forEach((feature) => {
-    // For currentfeature
+    // For current feature
     if (feature.id === currentFeature.id) {
       if (currentFeature.type === geojsonTypes.POLYGON) {
         // For the current polygon, the last two points are the mouse position and back home
         // so we chop those off (else we get vertices showing where the user clicked, even
         // if they were just panning the map)
-        addVerticesTovertices(
+        addVerticesToVertices(
           feature.geometry.coordinates[0].slice(0, -2),
           true
         );
@@ -107,7 +109,7 @@ export const createSnapList = (map, draw, currentFeature) => {
     )
       return;
 
-    addVerticesTovertices(feature.geometry.coordinates);
+    addVerticesToVertices(feature.geometry.coordinates);
 
     // If feature is currently on viewport add to snap list
     if (!booleanDisjoint(bboxAsPolygon, feature)) {
@@ -118,7 +120,7 @@ export const createSnapList = (map, draw, currentFeature) => {
   return [snapList, vertices];
 };
 
-const getNearbyvertices = (vertices, coords) => {
+const getNearbyVertices = (vertices, coords) => {
   const verticals = [];
   const horizontals = [];
 
@@ -142,7 +144,7 @@ const getNearbyvertices = (vertices, coords) => {
 };
 
 const calcLayerDistances = (lngLat, layer) => {
-  // the point P which we want to snap (probpably the marker that is dragged)
+  // the point P which we want to snap (probably the marker that is dragged)
   const P = [lngLat.lng, lngLat.lat];
 
   // is this a marker?
@@ -151,6 +153,8 @@ const calcLayerDistances = (lngLat, layer) => {
   const isPolygon = layer.geometry.type === "Polygon";
   // is it a multiPolygon?
   const isMultiPolygon = layer.geometry.type === "MultiPolygon";
+  // is it a multiPoint?
+  const isMultiPoint = layer.geometry.type === "MultiPoint";
 
   let lines = undefined;
 
@@ -166,6 +170,18 @@ const calcLayerDistances = (lngLat, layer) => {
     };
   }
 
+  if (isMultiPoint) {
+    const np = nearestPointInPointSet(
+      P,
+      featureCollection(latlngs.map((x) => turfPoint(x)))
+    );
+    const c = np.geometry.coordinates;
+    return {
+      latlng: { lng: c[0], lat: c[1] },
+      distance: np.properties.distanceToPoint,
+    };
+  }
+
   if (isPolygon || isMultiPolygon) {
     lines = polygonToLine(layer);
   } else {
@@ -174,22 +190,19 @@ const calcLayerDistances = (lngLat, layer) => {
 
   let nearestPoint;
   if (isPolygon) {
-
     let lineStrings;
     if (lines.geometry.type === "LineString") {
       lineStrings = [turfLineString(lines.geometry.coordinates)];
     } else {
       lineStrings = lines.geometry.coordinates.map((coords) =>
-        turfLineString(coords),
+        turfLineString(coords)
       );
     }
 
     const closestFeature = getFeatureWithNearestPoint(lineStrings, P);
     lines = closestFeature.feature;
     nearestPoint = closestFeature.point;
-
   } else if (isMultiPolygon) {
-
     const lineStrings = lines.features
       .map((feat) => {
         if (feat.geometry.type === "LineString") {
@@ -204,7 +217,6 @@ const calcLayerDistances = (lngLat, layer) => {
     const closestFeature = getFeatureWithNearestPoint(lineStrings, P);
     lines = closestFeature.feature;
     nearestPoint = closestFeature.point;
-
   } else {
     nearestPoint = nearestPointOnLine(lines, P);
   }
@@ -212,11 +224,19 @@ const calcLayerDistances = (lngLat, layer) => {
   const [lng, lat] = nearestPoint.geometry.coordinates;
 
   let segmentIndex = nearestPoint.properties.index;
-  if (segmentIndex + 1 === lines.geometry.coordinates.length) segmentIndex--;
+
+  let { coordinates } = lines.geometry;
+
+  if (lines.geometry.type === "MultiLineString") {
+    coordinates =
+      lines.geometry.coordinates[nearestPoint.properties.multiFeatureIndex];
+  }
+
+  if (segmentIndex + 1 === coordinates.length) segmentIndex--;
 
   return {
     latlng: { lng, lat },
-    segment: lines.geometry.coordinates.slice(segmentIndex, segmentIndex + 2),
+    segment: coordinates.slice(segmentIndex, segmentIndex + 2),
     distance: nearestPoint.properties.dist,
     isMarker,
   };
@@ -229,7 +249,7 @@ function getFeatureWithNearestPoint(lineStrings, P) {
   }));
 
   nearestPointsOfEachFeature.sort(
-    (a, b) => a.point.properties.dist - b.point.properties.dist,
+    (a, b) => a.point.properties.dist - b.point.properties.dist
   );
 
   return {
@@ -272,7 +292,11 @@ const metersPerPixel = function (latitude, zoomLevel) {
 };
 
 // we got the point we want to snap to (C), but we need to check if a coord of the polygon
-function snapToLineOrPolygon(closestLayer, snapOptions, snapVertexPriorityDistance) {
+function snapToLineOrPolygon(
+  closestLayer,
+  snapOptions,
+  snapVertexPriorityDistance
+) {
   // A and B are the points of the closest segment to P (the marker position we want to snap)
   const A = closestLayer.segment[0];
   const B = closestLayer.segment[1];
@@ -306,7 +330,7 @@ function snapToLineOrPolygon(closestLayer, snapOptions, snapVertexPriorityDistan
   // the distance that needs to be undercut to trigger priority
   const priorityDistance = snapVertexPriorityDistance;
 
-  // the latlng we ultemately want to snap to
+  // the latlng we ultimately want to snap to
   let snapLatlng;
 
   // if C is closer to the closestVertexLatLng (A, B or M) than the snapDistance,
@@ -319,20 +343,27 @@ function snapToLineOrPolygon(closestLayer, snapOptions, snapVertexPriorityDistan
 
   // return the copy of snapping point
   const [lng, lat] = snapLatlng;
-  return {lng, lat};
+  return { lng, lat };
 }
-
 
 function snapToPoint(closestLayer) {
   return closestLayer.latlng;
 }
 
-const checkPrioritiySnapping = (closestLayer, snapOptions, snapVertexPriorityDistance = 1.25) => {
+const checkPrioritySnapping = (
+  closestLayer,
+  snapOptions,
+  snapVertexPriorityDistance = 1.25
+) => {
   let snappingToPoint = !Array.isArray(closestLayer.segment);
   if (snappingToPoint) {
     return snapToPoint(closestLayer);
   } else {
-    return snapToLineOrPolygon(closestLayer, snapOptions, snapVertexPriorityDistance);
+    return snapToLineOrPolygon(
+      closestLayer,
+      snapOptions,
+      snapVertexPriorityDistance
+    );
   }
 };
 
@@ -373,10 +404,12 @@ export const snap = (state, e) => {
     }
 
     const isMarker = closestLayer.isMarker;
-    const snapVertexPriorityDistance = state.options.snapOptions ? state.options.snapOptions.snapVertexPriorityDistance : undefined;
+    const snapVertexPriorityDistance = state.options.snapOptions
+      ? state.options.snapOptions.snapVertexPriorityDistance
+      : undefined;
 
     if (!isMarker) {
-      snapLatLng = checkPrioritiySnapping(
+      snapLatLng = checkPrioritySnapping(
         closestLayer,
         state.options.snapOptions,
         snapVertexPriorityDistance
@@ -393,10 +426,10 @@ export const snap = (state, e) => {
 
   let verticalPx, horizontalPx;
   if (state.options.guides) {
-    const nearestGuidline = getNearbyvertices(state.vertices, e.lngLat);
+    const nearestGuideline = getNearbyVertices(state.vertices, e.lngLat);
 
-    verticalPx = nearestGuidline.verticalPx;
-    horizontalPx = nearestGuidline.horizontalPx;
+    verticalPx = nearestGuideline.verticalPx;
+    horizontalPx = nearestGuideline.horizontalPx;
 
     if (verticalPx) {
       // Draw a line from top to bottom

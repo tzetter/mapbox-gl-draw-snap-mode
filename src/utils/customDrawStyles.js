@@ -1,5 +1,4 @@
-import * as MapboxDraw from '@mapbox/mapbox-gl-draw';
-
+import MapboxDraw from "@mapbox/mapbox-gl-draw";
 const theme = MapboxDraw.lib.theme;
 
 const modifiedDefaultStyles = theme.map(defaultStyle => {
